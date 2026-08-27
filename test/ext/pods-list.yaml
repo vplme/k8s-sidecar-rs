@@ -1,0 +1,27 @@
+# T5 -- METHOD=LIST: sync once, then exit. Created after its ConfigMaps exist,
+# and never waited on with condition=ready, because the sidecar container is
+# expected to terminate. The inspector keeps the pod (and the volume) alive so
+# the written files can still be read.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-list
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  restartPolicy: Never
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,     value: "extlist"}
+    - {name: FOLDER,    value: /data}
+    - {name: RESOURCE,  value: configmap}
+    - {name: METHOD,    value: LIST}
+    - {name: LOG_LEVEL, value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}

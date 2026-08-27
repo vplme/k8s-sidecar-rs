@@ -1,0 +1,267 @@
+# Extended-suite pods. Every pod pairs the sidecar under test with a busybox
+# "inspector" sharing the target folder, and all assertions exec into the
+# inspector -- so the suite never depends on what the sidecar image contains,
+# and can still inspect METHOD=LIST after the sidecar process exits.
+#
+# Each pod watches its own label so the cases cannot interfere with each other.
+# The image tag below is substituted at apply time (see test/run-ext.sh).
+
+# T1 -- stale-key removal and folder-annotation changes.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-diff
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,     value: "extdiff"}
+    - {name: FOLDER,    value: /data}
+    - {name: RESOURCE,  value: both}
+    - {name: LOG_LEVEL, value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T2 -- sha256 write suppression gating SCRIPT execution.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-gate
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts:
+    - {name: data, mountPath: /data}
+    - {name: out,  mountPath: /out}
+    - {name: script, mountPath: /opt/script.sh, subPath: script.sh}
+    env:
+    - {name: LABEL,     value: "extgate"}
+    - {name: FOLDER,    value: /data}
+    - {name: RESOURCE,  value: both}
+    - {name: SCRIPT,    value: /opt/script.sh}
+    - {name: LOG_LEVEL, value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+
+    volumeMounts:
+    - {name: data, mountPath: /data}
+    - {name: out,  mountPath: /out}
+  volumes:
+  - {name: data, emptyDir: {}}
+  - {name: out,  emptyDir: {}}
+  - name: script
+    configMap: {name: ext-script, defaultMode: 0777}
+---
+# T3 -- UNIQUE_FILENAMES naming scheme.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-unique
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,            value: "extuniq"}
+    - {name: FOLDER,           value: /data}
+    - {name: RESOURCE,         value: both}
+    - {name: UNIQUE_FILENAMES, value: "true"}
+    - {name: LOG_LEVEL,        value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T4 -- DEFAULT_FILE_MODE applied after every write.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-mode
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,             value: "extmode"}
+    - {name: FOLDER,            value: /data}
+    - {name: RESOURCE,          value: both}
+    - {name: DEFAULT_FILE_MODE, value: "400"}
+    - {name: LOG_LEVEL,         value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T6 -- METHOD=SLEEP polls instead of watching.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-sleep
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,      value: "extsleep"}
+    - {name: FOLDER,     value: /data}
+    - {name: RESOURCE,   value: configmap}
+    - {name: METHOD,     value: SLEEP}
+    - {name: SLEEP_TIME, value: "5"}
+    - {name: LOG_LEVEL,  value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T7 -- NAMESPACE=ALL spans every namespace.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-allns
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,     value: "extall"}
+    - {name: FOLDER,    value: /data}
+    - {name: RESOURCE,  value: configmap}
+    - {name: NAMESPACE, value: "ALL"}
+    - {name: LOG_LEVEL, value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T8 -- comma-separated namespace list, one watcher thread per namespace.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-multins
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,     value: "extmulti"}
+    - {name: FOLDER,    value: /data}
+    - {name: RESOURCE,  value: configmap}
+    - {name: NAMESPACE, value: "ext-a,ext-b"}
+    - {name: LOG_LEVEL, value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T9 -- RESOURCE_NAME selects by name and ignores the label entirely.
+# The three entries exercise all accepted forms: bare name, type/name and
+# namespace/type/name. Setting RESOURCE_NAME also downgrades WATCH to SLEEP.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-resname
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,         value: "extrn"}
+    - {name: FOLDER,        value: /data}
+    - {name: RESOURCE,      value: configmap}
+    - {name: RESOURCE_NAME, value: "rn-one,configmap/rn-two,ext-a/configmap/rn-three"}
+    - {name: SLEEP_TIME,    value: "5"}
+    - {name: LOG_LEVEL,     value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T10 -- IGNORE_ALREADY_PROCESSED skips resources whose resourceVersion is
+# unchanged. SLEEP mode makes the list loop repeat so the skip is observable.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-ignore
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,                    value: "extign"}
+    - {name: FOLDER,                   value: /data}
+    - {name: RESOURCE,                 value: configmap}
+    - {name: METHOD,                   value: SLEEP}
+    - {name: SLEEP_TIME,               value: "5"}
+    - {name: IGNORE_ALREADY_PROCESSED, value: "true"}
+    - {name: LOG_LEVEL,                value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}
+---
+# T11 -- list pagination: _iter_k8s_items pages with limit=5, so 12 resources
+# require three round trips and a _continue token.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-page
+  namespace: ext-b
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,      value: "extpage"}
+    - {name: FOLDER,     value: /data}
+    - {name: RESOURCE,   value: configmap}
+    - {name: METHOD,     value: SLEEP}
+    - {name: SLEEP_TIME, value: "5"}
+    - {name: LOG_LEVEL,  value: DEBUG}
+  - name: inspector
+    image: ext-inspector:1.0
+    volumeMounts: [{name: data, mountPath: /data}]
+  volumes:
+  - {name: data, emptyDir: {}}

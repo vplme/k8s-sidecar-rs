@@ -33,11 +33,24 @@ by image, so the Python reference and the Rust rewrite are held to exactly the
 same contract:
 
 ```
-make cluster-up        # kind cluster (3 nodes, dual-stack)
-make images            # build reference + dummy-server images
-make test-reference    # suite vs. upstream Python  -> baseline
-make test-rust         # suite vs. this project
+make cluster-up           # kind cluster (3 nodes, dual-stack)
+make images               # reference, dummy-server and inspector images
+make test-all             # everything vs. upstream Python -> baseline
+make test-rust            # ported upstream suite vs. this project
+make test-ext-rust        # extended suite vs. this project
 ```
+
+There are two suites. `test/run.sh` is the ported upstream suite (55
+assertions) and stays faithful to what upstream itself checks. `test/run-ext.sh`
+is ours (33 assertions), covering behaviour upstream's CI does not touch:
+stale-key and folder-annotation diffing, sha256 write suppression gating
+`SCRIPT`, `METHOD=LIST`/`SLEEP`, `NAMESPACE=ALL` and namespace lists,
+`RESOURCE_NAME` parsing, `IGNORE_ALREADY_PROCESSED`, `UNIQUE_FILENAMES`,
+`DEFAULT_FILE_MODE`, and list pagination.
+
+`make selftest` feeds every extended assertion a deliberately false claim and
+requires all of them to fail. An assertion that cannot go red would pass against
+a broken implementation, so the oracle itself is tested.
 
 Where upstream behaviour is arguably a bug, **we copy it exactly** and record
 the deviation rather than silently improving it — otherwise the suite stops
@@ -47,7 +60,7 @@ being a usable differential oracle. See `NOTES.md`.
 
 - [x] Phase 0 — toolchain and cluster
 - [x] Phase 1 — port upstream suite, green against Python (**55/55**)
-- [ ] Phase 2 — extend suite to cover the untested surface
+- [x] Phase 2 — extend suite over the untested surface (**33/33**, self-tested)
 - [ ] Phase 3 — memory/image-size measurement in-harness
 - [ ] Phase 4 — Rust implementation
 - [ ] Phase 5 — compare, tune, document
@@ -58,11 +71,14 @@ being a usable differential oracle. See `NOTES.md`.
 test/
   cluster.sh          create/delete the kind cluster
   build-reference.sh  build upstream Python image from a pinned commit
-  run.sh              the conformance suite (SIDECAR_IMAGE=... )
-  lib.sh              assertion + wait helpers
+  run.sh              ported upstream suite   (SIDECAR_IMAGE=... )
+  run-ext.sh          extended suite          (SIDECAR_IMAGE=... )
+  selftest.sh         negative controls for the extended assertions
+  lib.sh              assertion + wait helpers, shared by both suites
   resources/          upstream manifests, verbatim (image tag substituted at apply time)
   server/             upstream dummy HTTP server
   node-image/         kind node image patched for this kernel
+  ext/                extended-suite namespaces, RBAC, pods and inspector image
 ```
 
 `test/resources/` and `test/server/` are kept **byte-identical to upstream** so

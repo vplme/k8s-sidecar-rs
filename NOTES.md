@@ -75,30 +75,70 @@ Decision: copy bug-for-bug, document here, revisit deliberately later.
 `VERIFY_X509_STRICT`. It has no rustls equivalent. Plan: accept the variable and
 log a warning that it is a no-op.
 
-## Phase 2 — gaps in the ported suite
+## Coverage beyond the ported upstream suite
 
-Upstream CI does not cover these, and each is easy to get wrong in a rewrite:
+`test/run-ext.sh` closes the gaps upstream CI leaves. All 33 assertions are
+green against the Python reference; the mapping from gap to case is:
 
-| area | why it matters |
+| case | covers |
 |---|---|
-| stale-key / folder-change diffing | the gnarliest logic upstream (`resources.py`); only partially exercised |
-| sha256 write suppression | gates `SCRIPT` and `REQ_URL`; wrong => webhook storm |
-| `METHOD=LIST`, `METHOD=SLEEP` | only `WATCH` is meaningfully tested |
-| `NAMESPACE=ALL`, comma-separated namespaces | cross-namespace cache scoping |
-| `RESOURCE_NAME` parsing | reversed-split rules, silent WATCH->SLEEP downgrade |
-| `IGNORE_ALREADY_PROCESSED` | resourceVersion caching |
-| `UNIQUE_FILENAMES` | `namespace_X.configmap_Y.file` naming |
-| `DEFAULT_FILE_MODE` | chmod after write |
-| list pagination | `limit=5` + `_continue` |
+| T1 | stale-key removal, folder-annotation change moves files and deletes from the old folder, delete-on-ConfigMap-delete |
+| T2 | sha256 write suppression gating `SCRIPT` (unchanged content must not re-fire) |
+| T3 | `UNIQUE_FILENAMES` naming, ConfigMap vs. Secret disambiguation |
+| T4 | `DEFAULT_FILE_MODE` |
+| T5 | `METHOD=LIST` syncs once and exits 0 |
+| T6 | `METHOD=SLEEP` polls for both additions and deletions |
+| T7 | `NAMESPACE=ALL` |
+| T8 | comma-separated namespace list |
+| T9 | `RESOURCE_NAME` in all three forms; label selector ignored when set |
+| T10 | `IGNORE_ALREADY_PROCESSED` skips unchanged resourceVersions |
+| T11 | list pagination (`limit=5` + `_continue`) across 12 resources |
 
-## Phase 4 constraint discovered early
+`REQ_URL` firing is not separately tested: it is gated by the same
+`files_changed` flag as `SCRIPT`, which T2 covers, and the ported upstream suite
+already exercises the request path itself.
 
-The suite reaches into the sidecar container with `kubectl exec` (`sh`, `test`,
-`ls`, `grep`) and `kubectl cp` (needs `tar`). A `scratch`/distroless-static Rust
-image has none of these, so the suite could not inspect it.
+### The oracle is itself tested
 
-Preferred fix: add a small busybox **inspector container** to each test pod,
-sharing the sidecar's target folder via an `emptyDir`, and exec into *that*.
-This keeps the shipped Rust image minimal, exercises the real deployment pattern
-(shared volume with an app container), and works identically for both
-implementations. To be done as part of the Phase 2 manifest changes.
+`test/selftest.sh` gives each assertion type a false claim and requires all six
+to fail. This exists because the failure mode of a black-box suite is silent:
+an assertion pointed at the wrong container or a helper that swallows its own
+error passes against every implementation, including a broken one. Run it
+whenever an assertion helper changes.
+
+### Notes discovered while building the extended suite
+
+- Assertions must run in the **inspector** container, never the sidecar — see
+  the Phase 4 constraints below.
+- With `RESOURCE_NAME` set, the label selector is not applied at all; resources
+  are read by name. T9 proves this by leaving the named ConfigMaps unlabelled
+  and labelling a ConfigMap that is *not* named.
+- `METHOD=LIST` leaves the pod at `1/2 Running` once the sidecar exits, so it
+  must never be waited on with `--for=condition=ready`.
+- `kind load docker-image busybox:1.37` fails with `content digest ... not
+  found` (attestation manifests). The inspector image is therefore built
+  locally with `--provenance=false --sbom=false`.
+
+## Phase 4 constraints discovered early
+
+**The Rust image cannot be `scratch`.** `SCRIPT` is part of the drop-in
+contract, and `helpers.execute()` runs a non-executable script as `sh <path>`.
+Supporting it requires a shell in the sidecar image, so the base is busybox
+(~4 MB), not `scratch`. Target image is therefore ~10-14 MB rather than ~8 MB —
+still an order of magnitude below the reference's 139 MB. A side benefit is that
+busybox supplies `sh`/`test`/`grep`/`tar`, so `kubectl exec` and `kubectl cp`
+keep working against the Rust image.
+
+**The extended suite still uses an inspector container.** Each `test/ext` pod
+runs a busybox `inspector` alongside the sidecar, sharing the target folder via
+an `emptyDir`, and all assertions exec into the inspector rather than the
+sidecar. Two reasons: it keeps the suite a genuine black-box test that does not
+depend on what the sidecar image happens to contain, and it is the only way to
+inspect `METHOD=LIST`, where the sidecar container exits as soon as it finishes.
+
+**The ported upstream suite will need one substitution for the Rust image.**
+`test/resources/sidecar.yaml` drives four pods with a `#!/usr/bin/env python`
+script, which exercises upstream's image contents rather than sidecar
+behaviour. Those pods need an `sh` equivalent when the suite runs against a
+non-Python image. To be handled in Phase 4, not by editing the vendored
+manifests.
