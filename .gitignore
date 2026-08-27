@@ -1,0 +1,4 @@
+/target
+test/.out/
+test/.upstream/
+test/server/static/kubelogo.png

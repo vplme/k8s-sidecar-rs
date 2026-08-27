@@ -1,0 +1,619 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sample-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sample-acc
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: sample-rolebind
+roleRef:
+  kind: ClusterRole
+  name: sample-role
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: sample-acc
+  namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: script-configmap
+  labels:
+    somelabel: "somesome"
+data:
+  script.sh: |-
+    #!/bin/sh
+    touch /tmp/script_result
+  script.py: |-
+    #!/usr/bin/env python
+    print("Hello from python script!")
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /tmp/
+    - name: script-volume
+      mountPath: /opt/script.sh
+      subPath: script.sh
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp/
+      - name: RESOURCE
+        value: both
+      - name: SCRIPT
+        value: "/opt/script.sh"
+      - name: REQ_USERNAME
+        value: "user1"
+      - name: REQ_PASSWORD
+        value: "abcdefghijklmnopqrstuvwxyz"
+      - name: REQ_BASIC_AUTH_ENCODING
+        # the python server we're using for the tests expects ascii encoding of basic auth credentials, hence we can't use non-ascii characters in the password or username
+        value: "ascii"
+      - name: LOG_LEVEL
+        value: "DEBUG"
+  volumes:
+  - name: shared-volume
+    emptyDir: {}
+  - name: script-volume
+    configMap:
+      name: script-configmap
+      defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-healthcheck
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /tmp/
+    - name: script-volume
+      mountPath: /opt/script.sh
+      subPath: script.sh
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp/
+      - name: RESOURCE
+        value: both
+      - name: SCRIPT
+        value: "/opt/script.sh"
+      - name: REQ_USERNAME
+        value: "user1"
+      - name: REQ_PASSWORD
+        value: "abcdefghijklmnopqrstuvwxyz"
+      - name: REQ_BASIC_AUTH_ENCODING
+        # the python server we're using for the tests expects ascii encoding of basic auth credentials, hence we can't use non-ascii characters in the password or username
+        value: "ascii"
+      - name: LOG_LEVEL
+        value: "DEBUG"
+      - name: HEALTH_PORT
+        value: "8888"
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: 8888
+      initialDelaySeconds: 25
+      periodSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8888
+      initialDelaySeconds: 35
+      periodSeconds: 10
+  volumes:
+  - name: shared-volume
+    emptyDir: {}
+  - name: script-volume
+    configMap:
+      name: script-configmap
+      defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-healthcheck-ipv4
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /tmp/
+    - name: script-volume
+      mountPath: /opt/script.sh
+      subPath: script.sh
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp/
+      - name: RESOURCE
+        value: both
+      - name: SCRIPT
+        value: "/opt/script.sh"
+      - name: REQ_USERNAME
+        value: "user1"
+      - name: REQ_PASSWORD
+        value: "abcdefghijklmnopqrstuvwxyz"
+      - name: REQ_BASIC_AUTH_ENCODING
+        # the python server we're using for the tests expects ascii encoding of basic auth credentials, hence we can't use non-ascii characters in the password or username
+        value: "ascii"
+      - name: LOG_LEVEL
+        value: "DEBUG"
+      - name: HEALTH_PORT
+        value: "8888"
+      - name: HEALTH_HOST
+        value: "0.0.0.0"
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: 8888
+      initialDelaySeconds: 25
+      periodSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8888
+      initialDelaySeconds: 35
+      periodSeconds: 10
+  volumes:
+  - name: shared-volume
+    emptyDir: {}
+  - name: script-volume
+    configMap:
+      name: script-configmap
+      defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-pythonscript
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+    - name: sidecar
+      image: kiwigrid/k8s-sidecar:testing
+      volumeMounts:
+        - name: shared-volume
+          mountPath: /tmp/
+        - name: script-volume
+          mountPath: /opt/script.py
+          subPath: script.py
+      env:
+        - name: LABEL
+          value: "findme"
+        - name: FOLDER
+          value: /tmp/
+        - name: RESOURCE
+          value: both
+        - name: SCRIPT
+          value: "/opt/script.py"
+        - name: LOG_LEVEL
+          value: "DEBUG"
+  volumes:
+    - name: shared-volume
+      emptyDir: { }
+    - name: script-volume
+      configMap:
+        name: script-configmap
+        defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-5xx
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /tmp-5xx/
+    - name: script-volume
+      mountPath: /opt-5xx/script.sh
+      subPath: script.sh
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp-5xx/
+      - name: RESOURCE
+        value: both
+      - name: SCRIPT
+        value: "/opt-5xx/script.sh"
+      - name: ENABLE_5XX
+      - name: LOG_LEVEL
+        value: "DEBUG"
+  volumes:
+  - name: shared-volume
+    emptyDir: {}
+  - name: script-volume
+    configMap:
+      name: script-configmap
+      defaultMode: 0777
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logger-config
+  labels:
+    somelabel: "somesome"
+data:
+  log_conf.yaml: |-
+    version: 1
+    disable_existing_loggers: false
+
+    root:
+        level: DEBUG
+        handlers: [console]
+        
+    handlers:
+        console:
+            class: logging.StreamHandler
+            level: DEBUG
+            formatter: JSON
+
+    formatters:
+        JSON:
+            (): logger.JsonFormatter
+            format: '%(levelname)s %(message)s'
+            rename_fields: {
+                    "message": "msg", 
+                    "levelname": "level"
+                    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logger-config-tofile
+  labels:
+    somelabel: "somesome"
+data:
+  log_conf.yaml: |-
+      version: 1
+      disable_existing_loggers: false
+
+      root:
+          level: DEBUG
+          handlers: [console]
+
+      handlers:
+          console:
+              class: logging.handlers.RotatingFileHandler
+              level: DEBUG
+              formatter: JSON
+              filename: "/opt/logs/sidecar.log"
+              maxBytes: 2097152
+              backupCount: 3
+
+      formatters:
+          JSON:
+              (): logger.JsonFormatter
+              format: '%(levelname)s %(message)s'
+              rename_fields: {
+                      "message": "msg",
+                      "levelname": "level"
+                      }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-pythonscript-logfile
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+    - name: sidecar
+      image: kiwigrid/k8s-sidecar:testing
+      volumeMounts:
+        - name: shared-volume
+          mountPath: /tmp/
+        - name: script-volume
+          mountPath: /opt/script.py
+          subPath: script.py
+        - name: log-config
+          mountPath: /etc/k8s-sidecar
+      env:
+        - name: LABEL
+          value: "findme"
+        - name: FOLDER
+          value: /tmp/
+        - name: RESOURCE
+          value: both
+        - name: SCRIPT
+          value: "/opt/script.py"
+        - name: LOG_LEVEL
+          value: "DEBUG"
+        - name: LOG_CONFIG
+          value: "/etc/k8s-sidecar/log_conf.yaml"
+  volumes:
+    - name: shared-volume
+      emptyDir: { }
+    - name: script-volume
+      configMap:
+        name: script-configmap
+        defaultMode: 0777
+    - name: log-config
+      configMap:
+        name: logger-config
+        defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-pythonscript-resource-name
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+    - name: sidecar
+      image: kiwigrid/k8s-sidecar:testing
+      volumeMounts:
+        - name: shared-volume
+          mountPath: /tmp/
+        - name: script-volume
+          mountPath: /opt/script.py
+          subPath: script.py
+      env:
+        - name: LABEL
+          value: "findme"
+        - name: FOLDER
+          value: /tmp/
+        - name: RESOURCE
+          value: both
+        - name: RESOURCE_NAME
+          value: configmap/sample-configmap,secret/sample-secret-binary
+        - name: SCRIPT
+          value: "/opt/script.py"
+        - name: LOG_LEVEL
+          value: "DEBUG"
+  volumes:
+    - name: shared-volume
+      emptyDir: { }
+    - name: script-volume
+      configMap:
+        name: script-configmap
+        defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-logtofile-pythonscript
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+    - name: sidecar
+      image: kiwigrid/k8s-sidecar:testing
+      volumeMounts:
+        - name: shared-volume
+          mountPath: /tmp/
+        - name: script-volume
+          mountPath: /opt/script.py
+          subPath: script.py
+        - name: log-config
+          mountPath: /etc/k8s-sidecar
+        - name: logdir
+          mountPath: /opt/logs
+      env:
+        - name: LABEL
+          value: "findme"
+        - name: FOLDER
+          value: /tmp/
+        - name: RESOURCE
+          value: both
+        - name: SCRIPT
+          value: "/opt/script.py"
+        - name: LOG_LEVEL
+          value: "DEBUG"
+        - name: LOG_CONFIG
+          value: "/etc/k8s-sidecar/log_conf.yaml"
+  volumes:
+    - name: shared-volume
+      emptyDir: { }
+    - name: logdir
+      emptyDir: { }
+    - name: script-volume
+      configMap:
+        name: script-configmap
+        defaultMode: 0777
+    - name: log-config
+      configMap:
+        name: logger-config-tofile
+        defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dummy-server-pod
+  namespace: default
+  labels:
+    app: dummyserver
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: dummy-server
+    image: dummy-server:1.0.0
+    ports:
+      - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dummy-server
+spec:
+  selector:
+    app: dummyserver
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-basicauth-args
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    args:
+      - --req-username-file=/opt/creds/username
+      - --req-password-file=/opt/creds/password
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+    - name: auth-creds
+      mountPath: /opt/creds/
+    - name: shared-volume
+      mountPath: /tmp/
+    - name: script-volume
+      mountPath: /opt/script.sh
+      subPath: script.sh
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp/
+      - name: RESOURCE
+        value: both
+      - name: SCRIPT
+        value: "/opt/script.sh"
+      - name: REQ_BASIC_AUTH_ENCODING
+        # the python server we're using for the tests expects ascii encoding of basic auth credentials, hence we can't use non-ascii characters in the password or username
+        value: "ascii"
+      - name: LOG_LEVEL
+        value: "DEBUG"
+  volumes:
+  - name: auth-creds
+    secret:
+      secretName: dummyyserver-credentials
+  - name: shared-volume
+    emptyDir: {}
+  - name: script-volume
+    configMap:
+      name: script-configmap
+      defaultMode: 0777
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dummyyserver-credentials
+type: Opaque
+stringData:
+  username: "user1"
+  password: "abcdefghijklmnopqrstuvwxyz"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-basicauth-envfile
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+    - name: auth-creds
+      mountPath: /opt/creds/
+    - name: shared-volume
+      mountPath: /tmp/
+    - name: script-volume
+      mountPath: /opt/script.sh
+      subPath: script.sh
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp/
+      - name: RESOURCE
+        value: both
+      - name: SCRIPT
+        value: "/opt/script.sh"
+      - name: REQ_USERNAME_FILE
+        value: "/opt/creds/username"
+      - name: REQ_PASSWORD_FILE
+        value: "/opt/creds/password"
+      - name: REQ_BASIC_AUTH_ENCODING
+        # the python server we're using for the tests expects ascii encoding of basic auth credentials, hence we can't use non-ascii characters in the password or username
+        value: "ascii"
+      - name: LOG_LEVEL
+        value: "DEBUG"
+  volumes:
+  - name: auth-creds
+    secret:
+      secretName: dummyyserver-credentials
+  - name: shared-volume
+    emptyDir: {}
+  - name: script-volume
+    configMap:
+      name: script-configmap
+      defaultMode: 0777
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-sleep
+  namespace: default
+spec:
+  serviceAccountName: sample-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /tmp/
+    env:
+      - name: LABEL
+        value: "findme"
+      - name: FOLDER
+        value: /tmp/
+      - name: RESOURCE
+        value: both
+      - name: METHOD
+        value: "SLEEP"
+      - name: SLEEP_TIME
+        value: "10"
+      - name: LOG_LEVEL
+        value: "DEBUG"
+  volumes:
+  - name: shared-volume
+    emptyDir: {}
