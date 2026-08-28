@@ -49,11 +49,69 @@ pub enum WErr {
     Other(String),
 }
 
+/// A synced resource reduced to what later removal needs: key names, plus the
+/// value only for `*.url` keys, whose fetch happens even on the removal path.
+/// Payload bytes stay out of this cache so resident memory does not scale with
+/// the size of the watched resources. `text`/`binary` keep their `Option`-ness
+/// so the "No data field" warnings fire identically when a cached item is fed
+/// back through removal.
+#[derive(Clone)]
+struct CachedItem {
+    namespace: String,
+    name: String,
+    text: Option<BTreeMap<String, Option<String>>>,
+    binary: Option<BTreeMap<String, Option<Vec<u8>>>>,
+}
+
+fn keep_url_value<V: Clone>(key: &str, value: &V) -> Option<V> {
+    key.ends_with(".url").then(|| value.clone())
+}
+
+impl CachedItem {
+    fn from_item(item: &Item) -> CachedItem {
+        CachedItem {
+            namespace: item.namespace.clone(),
+            name: item.name.clone(),
+            text: item.text.as_ref().map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), keep_url_value(k, v)))
+                    .collect()
+            }),
+            binary: item.binary.as_ref().map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), keep_url_value(k, v)))
+                    .collect()
+            }),
+        }
+    }
+
+    /// Rebuild an `Item` for the removal path. Elided values come back empty,
+    /// which removal never reads; `*.url` values come back verbatim.
+    fn to_removal_item(&self) -> Item {
+        Item {
+            namespace: self.namespace.clone(),
+            name: self.name.clone(),
+            resource_version: String::new(),
+            annotations: BTreeMap::new(),
+            text: self.text.as_ref().map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), v.clone().unwrap_or_default()))
+                    .collect()
+            }),
+            binary: self.binary.as_ref().map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), v.clone().unwrap_or_default()))
+                    .collect()
+            }),
+        }
+    }
+}
+
 /// Shared across all watcher tasks, like upstream's module-level dicts.
 #[derive(Default)]
 struct Maps {
     version: HashMap<(Kind, String), String>,
-    object: HashMap<(Kind, String), Item>,
+    object: HashMap<(Kind, String), CachedItem>,
     dest: HashMap<(Kind, String), String>,
 }
 
@@ -215,7 +273,10 @@ async fn process_resource(
     let key = (kind, item.key());
     let (old_item, old_dest) = {
         let mut m = maps().lock().unwrap();
-        let old_item = m.object.get(&key).cloned().unwrap_or_else(|| item.clone());
+        let old_item = match m.object.get(&key) {
+            Some(cached) => cached.to_removal_item(),
+            None => CachedItem::from_item(item).to_removal_item(),
+        };
         let old_dest = m
             .dest
             .get(&key)
@@ -225,7 +286,7 @@ async fn process_resource(
         if is_removed {
             m.object.remove(&key);
         } else {
-            m.object.insert(key.clone(), item.clone());
+            m.object.insert(key.clone(), CachedItem::from_item(item));
             m.dest
                 .insert(key.clone(), dest_folder.unwrap_or_default().to_string());
         }
@@ -454,12 +515,12 @@ pub async fn list_resources(
         let m = maps().lock().unwrap();
         m.object
             .iter()
-            .filter(|((k, key), item)| {
+            .filter(|((k, key), cached)| {
                 *k == kind
-                    && (namespace == "ALL" || item.namespace == namespace)
+                    && (namespace == "ALL" || cached.namespace == namespace)
                     && !exist_keys.contains(key)
             })
-            .map(|(_, item)| item.clone())
+            .map(|(_, cached)| cached.to_removal_item())
             .collect()
     };
     for item in stale {
