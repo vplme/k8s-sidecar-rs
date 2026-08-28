@@ -160,3 +160,45 @@ script, which exercises upstream's image contents rather than sidecar
 behaviour. Those pods need an `sh` equivalent when the suite runs against a
 non-Python image. To be handled in Phase 4, not by editing the vendored
 manifests.
+
+## Phase 4 design brief
+
+Start here; the constraints above are binding.
+
+**Crates.** `kube` + `k8s-openapi` (ConfigMap and Secret only), `tokio`,
+`reqwest`/`rustls` for `*.url` and `REQ_URL`, `serde`, `sha2`, `base64`,
+`tracing` for logging. Prefer kube-rs over a hand-rolled client: it supplies
+in-cluster auth, token refresh and watch reconnection for free. Only hand-roll
+if the measured result misses target, which it should not — kube-rs at ~10 MB
+already beats 90 MB ninefold.
+
+**Shape.** One `current_thread` tokio runtime with a task per
+(resource x namespace), mirroring upstream's thread-per-combination. Upstream
+exits non-zero if any watcher dies (`watch_for_changes`); match that.
+
+**Image.** busybox base, static musl binary, `USER 65534:65534`, entrypoint is
+the binary so it stays PID 1 (the measurement depends on this). Not `scratch` —
+see the constraints above.
+
+**Order of work.** Get `make test-rust` green before `make test-ext-rust`; the
+ported suite covers the common path, the extended suite covers the semantics
+that are easy to get subtly wrong. Then `make measure-rust && make
+measure-compare`.
+
+**Watch for these specifically** — they are where a rewrite silently diverges:
+
+1. `files_changed` must be false when content is unchanged. It gates `SCRIPT`
+   and `REQ_URL`; getting it wrong produces a webhook storm rather than a test
+   failure. Covered by T2.
+2. The old-object bookkeeping (`_resources_object_map`,
+   `_resources_dest_folder_map`) must delete files for vanished keys *and* from
+   the previous folder when the annotation changes. Covered by T1.
+3. `list_resources` scopes its stale-key diff to the current namespace, because
+   the map is shared across per-namespace tasks. An unscoped diff lets one task
+   delete another's files.
+4. Log strings the suites grep are part of the contract: `Starting health server
+   on port %d`, `Max retries exceeded for URL`, `Config for cluster api at
+   '<host>'`, `Ignoring <resource> <ns>/<name>`, and the `Working on ...` lines
+   the wait helpers match on.
+5. Replicate the quirks listed under "Upstream behaviours to replicate exactly"
+   rather than improving them.
