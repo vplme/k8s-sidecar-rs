@@ -119,6 +119,24 @@ whenever an assertion helper changes.
   found` (attestation manifests). The inspector image is therefore built
   locally with `--provenance=false --sbom=false`.
 
+## Measurement method (Phase 3)
+
+`test/measure.sh` reads `VmRSS` from `/proc/1/status` inside the sidecar
+container. The sidecar is the image's `ENTRYPOINT`, so it is always PID 1 of the
+container's own PID namespace — deterministic, and independent of process names
+or of `metrics-server` being installed. The report also records a full process
+inventory, so an implementation that forks children becomes visible rather than
+being silently under-measured by the PID-1 reading.
+
+Do **not** use `docker image inspect --format '{{.Size}}'`: under the containerd
+image store it reported 28 MB for an image whose layers total 139 MB. The script
+parses what `docker images` prints instead, which matches `docker history` and
+is the number a user would see.
+
+The measured result is that the reference's footprint is essentially constant:
+90.9 MB idle, 91.6 MB while syncing 50 ConfigMaps of 8 kB each. The memory is
+spent at import time, before any sidecar work happens.
+
 ## Phase 4 constraints discovered early
 
 **The Rust image cannot be `scratch`.** `SCRIPT` is part of the drop-in

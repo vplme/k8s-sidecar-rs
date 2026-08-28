@@ -10,19 +10,29 @@ messages, so it swaps into an existing pod spec with only an image change.
 The Python implementation costs ~90 MB RSS per container. Measured breakdown on
 the reference image (`aarch64`, upstream commit `a61c7ac`):
 
-| stage                        | max RSS |
-|------------------------------|---------|
-| bare CPython interpreter     | 11 MB   |
-| `import kubernetes`          | 107 MB  |
-| `import requests`            | 107 MB  |
-| `CoreV1Api` + `watch`        | 107 MB  |
+Measured in-cluster (`make measure-reference`, upstream commit `a61c7ac`,
+`aarch64`), reading `VmRSS` of the container's PID 1:
+
+| | reference (Python) | target (Rust) |
+|---|---|---|
+| image size | 139 MB | ~10-14 MB |
+| RSS idle | 90.9 MB | |
+| RSS with 50 ConfigMaps x 8 kB | 91.6 MB | |
+
+**The cost is fixed, not per-workload.** Syncing 50 ConfigMaps instead of none
+adds 0.7 MB. Import-time attribution explains the rest:
+
+| stage | max RSS |
+|---|---|
+| bare CPython interpreter | 11 MB |
+| `import kubernetes` | 107 MB |
+| `+ requests`, `+ CoreV1Api`, `+ watch` | 107 MB |
 
 The generated OpenAPI model classes in the `kubernetes` PyPI package account for
 **96 of the 107 MB**. Everything else — the sidecar's own logic, HTTP client,
-file handling — costs about 11 MB.
-
-Image size: 139 MB (reference build) vs. a target of ~10 MB for a static Rust
-binary on `scratch`.
+file handling — costs about 11 MB. So the memory is paid at import, before the
+sidecar does any work at all, which is why a rewrite wins so decisively and why
+most of the win would also be available in Python by dropping the fat client.
 
 ## Approach
 
@@ -38,6 +48,8 @@ make images               # reference, dummy-server and inspector images
 make test-all             # everything vs. upstream Python -> baseline
 make test-rust            # ported upstream suite vs. this project
 make test-ext-rust        # extended suite vs. this project
+make measure-rust         # record its image size and RSS
+make measure-compare      # reference vs. candidate table
 ```
 
 There are two suites. `test/run.sh` is the ported upstream suite (55
@@ -61,7 +73,7 @@ being a usable differential oracle. See `NOTES.md`.
 - [x] Phase 0 — toolchain and cluster
 - [x] Phase 1 — port upstream suite, green against Python (**55/55**)
 - [x] Phase 2 — extend suite over the untested surface (**33/33**, self-tested)
-- [ ] Phase 3 — memory/image-size measurement in-harness
+- [x] Phase 3 — memory/image-size measurement in-harness (baseline recorded)
 - [ ] Phase 4 — Rust implementation
 - [ ] Phase 5 — compare, tune, document
 
@@ -74,6 +86,8 @@ test/
   run.sh              ported upstream suite   (SIDECAR_IMAGE=... )
   run-ext.sh          extended suite          (SIDECAR_IMAGE=... )
   selftest.sh         negative controls for the extended assertions
+  measure.sh          record image size and RSS for one implementation
+  measure-compare.sh  print the recorded reference-vs-candidate table
   lib.sh              assertion + wait helpers, shared by both suites
   resources/          upstream manifests, verbatim (image tag substituted at apply time)
   server/             upstream dummy HTTP server

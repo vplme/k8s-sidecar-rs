@@ -1,0 +1,24 @@
+# Measurement pod for Phase 3. Deliberately plain: one sidecar, no inspector,
+# no script, so the number reflects the sidecar and nothing else.
+#
+# RSS is read from /proc/1 inside this container. The sidecar is the image's
+# ENTRYPOINT, so it is always PID 1 of the container's own PID namespace, which
+# makes the reading deterministic and independent of process names.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ext-mem
+  namespace: ext-a
+spec:
+  serviceAccountName: ext-acc
+  containers:
+  - name: sidecar
+    image: kiwigrid/k8s-sidecar:testing
+    volumeMounts: [{name: data, mountPath: /data}]
+    env:
+    - {name: LABEL,     value: "extmem"}
+    - {name: FOLDER,    value: /data}
+    - {name: RESOURCE,  value: both}
+    - {name: LOG_LEVEL, value: INFO}
+  volumes:
+  - {name: data, emptyDir: {}}

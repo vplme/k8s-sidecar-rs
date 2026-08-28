@@ -12,7 +12,8 @@ K8S_VERSION     ?= v1.34.3
 
 .PHONY: help cluster-up cluster-down images reference-image dummy-image \
         inspector-image test-reference test-rust test-ext-reference \
-        test-ext-rust selftest test-all clean
+        test-ext-rust selftest test-all measure-reference measure-rust \
+        measure-compare clean
 
 help:
 	@echo "cluster-up          create the kind test cluster ($(K8S_VERSION))"
@@ -25,6 +26,10 @@ help:
 	@echo "test-ext-rust       extended suite         vs. the Rust build"
 	@echo "selftest            prove the extended assertions can fail"
 	@echo "test-all            reference + extended + selftest against Python"
+	@echo ""
+	@echo "measure-reference   record image size and RSS for upstream Python"
+	@echo "measure-rust        record image size and RSS for the Rust build"
+	@echo "measure-compare     print the recorded comparison"
 
 cluster-up:
 	CLUSTER=$(CLUSTER) ./test/cluster.sh up $(K8S_VERSION)
@@ -66,6 +71,15 @@ selftest:
 
 # Extended suite before selftest: selftest inspects the pods it leaves behind.
 test-all: test-reference test-ext-reference selftest
+
+measure-reference:
+	SIDECAR_IMAGE=$(REFERENCE_IMAGE) CLUSTER=$(CLUSTER) ./test/measure.sh
+
+measure-rust:
+	SIDECAR_IMAGE=$(RUST_IMAGE) CLUSTER=$(CLUSTER) ./test/measure.sh
+
+measure-compare:
+	./test/measure-compare.sh
 
 clean:
 	rm -rf test/.out
