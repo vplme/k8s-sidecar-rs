@@ -68,12 +68,36 @@ Decision: copy bug-for-bug, document here, revisit deliberately later.
   `name`, `type/name`, `namespace/type/name`. Setting it downgrades
   `METHOD=WATCH` to `SLEEP` polling.
 - `LIST` mode paginates with `limit=5` and `_continue`.
+- **A non-2xx/3xx `*.url` response writes an empty file** even without retry
+  exhaustion: `response.text if response else ""` calls `Response.__bool__`,
+  which is `ok` (status < 400), so a 401/500 response is *falsy* and the
+  content is discarded. The `Writing <file> (ascii)` still happens (empty
+  bytes). The retry-exhausted path lands in the same place via the dummy
+  response object.
+- **The `sidecar-5xx` test pod actually runs with `enable_5xx=False`.** Its
+  manifest declares `ENABLE_5XX` with no value; `"".lower() != "true"`. The
+  empty-string-env-var-is-false rule applies to every boolean env var.
+- Env vars are read at different times: retry/timeout config once at startup,
+  `SLEEP_TIME`, `ERROR_THROTTLE_SLEEP` and `DEFAULT_FILE_MODE` per use.
 
-### Known irreducible mismatch
+### Known deviations in the Rust implementation
 
-`DISABLE_X509_STRICT_VERIFICATION` is a workaround for Python 3.13+ OpenSSL
-`VERIFY_X509_STRICT`. It has no rustls equivalent. Plan: accept the variable and
-log a warning that it is a no-op.
+All conscious, all invisible to the conformance suites:
+
+- `DISABLE_X509_STRICT_VERIFICATION` — a Python 3.13+/OpenSSL
+  `VERIFY_X509_STRICT` workaround with no rustls equivalent. Accepted and
+  logged with upstream's exact warning line, but a no-op.
+- `LOG_CONFIG` — upstream feeds it to Python `logging.dictConfig`, which can
+  name arbitrary Python classes. The Rust version interprets the subset in
+  actual use (root level, console StreamHandler or
+  RotatingFileHandler(filename, maxBytes, backupCount), JSON/LOGFMT
+  formatter); both upstream test configs fall inside it.
+- Data keys are processed in sorted (BTreeMap) order rather than API JSON
+  order; per-key work is order-independent.
+- Python dict/payload reprs in log lines use JSON quoting rather than Python
+  repr quoting; no test greps those lines.
+- k8s API transport retries approximate urllib3's Retry (total + backoff
+  factor); the split connect/read counters are not modelled.
 
 ## Coverage beyond the ported upstream suite
 
@@ -118,6 +142,25 @@ whenever an assertion helper changes.
 - `kind load docker-image busybox:1.37` fails with `content digest ... not
   found` (attestation manifests). The inspector image is therefore built
   locally with `--provenance=false --sbom=false`.
+
+## Phase 4 build traps (all cost real debugging time)
+
+- **reqwest + rustls needs a process-default crypto provider.** kube installs
+  its own per-client, so nothing else does it for you; every
+  `reqwest::Client::build()` fails with the maximally unhelpful "builder
+  error" until `rustls::crypto::aws_lc_rs::default_provider().install_default()`
+  runs at startup. The real cause is only visible in the error's
+  `source()` chain, not its Display.
+- **busybox has no CA bundle**, and reqwest/rustls fails at *builder* time
+  ("No CA certificates were loaded from the system") — same "builder error"
+  Display. The image copies `/etc/ssl/certs/ca-certificates.crt` from base
+  alpine; that is the certifi equivalent.
+- **The project mount corrupts cargo build dirs and docker contexts.**
+  `CARGO_TARGET_DIR` points at `~/.cache/`, and `make rust-image` stages the
+  docker context in `/tmp`. A Dockerfile edited in place on the mount had its
+  first line silently replaced by a run of spaces.
+- The measurement reports originally lived in `test/.out`, which run.sh
+  recreates; they moved to `test/.measure` after a run erased the baseline.
 
 ## Measurement method (Phase 3)
 

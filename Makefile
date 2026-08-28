@@ -11,7 +11,7 @@ CLUSTER         ?= sidecar-testing
 K8S_VERSION     ?= v1.34.3
 
 .PHONY: help cluster-up cluster-down images reference-image dummy-image \
-        inspector-image test-reference test-rust test-ext-reference \
+        inspector-image rust-image test-reference test-rust test-ext-reference \
         test-ext-rust selftest test-all measure-reference measure-rust \
         measure-compare clean
 
@@ -50,9 +50,18 @@ test-reference:
 	SIDECAR_IMAGE=$(REFERENCE_IMAGE) DUMMY_IMAGE=$(DUMMY_IMAGE) \
 	  CLUSTER=$(CLUSTER) ./test/run.sh
 
-test-rust:
+# Build the static musl binary on the host, then wrap it in the busybox image.
+# The build context is staged outside the repo mount (its dentry-cache quirks
+# corrupt docker build contexts and cargo build dirs alike).
+rust-image:
+	cargo build --release --target aarch64-unknown-linux-musl
+	rm -rf /tmp/k8s-sidecar-rs-ctx && mkdir -p /tmp/k8s-sidecar-rs-ctx
+	cp Dockerfile "$$HOME/.cache/k8s-sidecar-rs-target/aarch64-unknown-linux-musl/release/k8s-sidecar-rs" /tmp/k8s-sidecar-rs-ctx/
+	docker build --provenance=false --sbom=false -t $(RUST_IMAGE) /tmp/k8s-sidecar-rs-ctx
+
+test-rust: rust-image
 	SIDECAR_IMAGE=$(RUST_IMAGE) DUMMY_IMAGE=$(DUMMY_IMAGE) \
-	  CLUSTER=$(CLUSTER) ./test/run.sh
+	  CLUSTER=$(CLUSTER) SCRIPT_FLAVOR=sh ./test/run.sh
 
 inspector-image:
 	docker build -q --provenance=false --sbom=false \
@@ -62,7 +71,7 @@ test-ext-reference:
 	SIDECAR_IMAGE=$(REFERENCE_IMAGE) INSPECTOR_IMAGE=$(INSPECTOR_IMAGE) \
 	  CLUSTER=$(CLUSTER) ./test/run-ext.sh
 
-test-ext-rust:
+test-ext-rust: rust-image
 	SIDECAR_IMAGE=$(RUST_IMAGE) INSPECTOR_IMAGE=$(INSPECTOR_IMAGE) \
 	  CLUSTER=$(CLUSTER) ./test/run-ext.sh
 

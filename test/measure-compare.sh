@@ -8,7 +8,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-OUT="$HERE/.out"
+OUT="$HERE/.measure"
 REF_TAG="${1:-k8s-sidecar-reference_testing}"
 CAND_TAG="${2:-k8s-sidecar-rs_testing}"
 
@@ -32,7 +32,7 @@ printf '%-22s %12s %14s %14s\n' "$(field "$REF" image)" "$r_img" "$(mb "$r_idle"
 if [ ! -f "$CAND" ]; then
   printf '%-22s %12s %14s %14s\n' "$CAND_TAG" "-" "-" "-"
   echo
-  echo "No candidate report at $CAND yet (run: make measure-rust once Phase 4 builds)."
+  echo "No candidate report at $CAND yet (run: make measure-rust)."
   exit 0
 fi
 

@@ -59,7 +59,17 @@ kubectl delete -f "$HERE/resources/resources.yaml" --ignore-not-found \
         --wait --timeout=120s >/dev/null 2>&1
 kubectl delete configmap,secret -l findme --ignore-not-found >/dev/null 2>&1
 
-sed "s|${MANIFEST_IMAGE}|${SIDECAR_IMAGE}|g" "$HERE/resources/sidecar.yaml" \
+# SCRIPT_FLAVOR=sh rewrites script-configmap's script.py from Python to sh.
+# Four pods run it via SCRIPT; with a non-Python sidecar image the
+# `#!/usr/bin/env python` shebang cannot execute. The replacement emits the
+# exact same marker line the log-count assertions grep for, so the assertions
+# stay unchanged. The vendored manifest itself is never edited.
+SCRIPT_SUBST=(-e "s|${MANIFEST_IMAGE}|${SIDECAR_IMAGE}|g")
+if [ "${SCRIPT_FLAVOR:-python}" = "sh" ]; then
+  SCRIPT_SUBST+=(-e 's|#!/usr/bin/env python|#!/bin/sh|' \
+                 -e 's|print("Hello from python script!")|echo "Hello from python script!"|')
+fi
+sed "${SCRIPT_SUBST[@]}" "$HERE/resources/sidecar.yaml" \
   | kubectl apply -f - || exit 1
 
 for pod in "${SIDECAR_PODS[@]}" dummy-server-pod; do

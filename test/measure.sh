@@ -18,7 +18,9 @@ LOAD_KB="${LOAD_KB:-8}"             # payload size of each
 export KUBE_NAMESPACE=ext-a EXT_NS=ext-a
 
 TAG=$(echo "$SIDECAR_IMAGE" | tr '/:' '__')
-OUT="$HERE/.out"; mkdir -p "$OUT"
+# Reports live outside test/.out: run.sh recreates that directory on every
+# invocation and would silently erase recorded baselines.
+OUT="$HERE/.measure"; mkdir -p "$OUT"
 REPORT="$OUT/measure-$TAG.txt"
 
 # rss_kb -- VmRSS of the container's PID 1, in kB.

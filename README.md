@@ -13,11 +13,11 @@ the reference image (`aarch64`, upstream commit `a61c7ac`):
 Measured in-cluster (`make measure-reference`, upstream commit `a61c7ac`,
 `aarch64`), reading `VmRSS` of the container's PID 1:
 
-| | reference (Python) | target (Rust) |
-|---|---|---|
-| image size | 139 MB | ~10-14 MB |
-| RSS idle | 90.9 MB | |
-| RSS with 50 ConfigMaps x 8 kB | 91.6 MB | |
+| | reference (Python) | **k8s-sidecar-rs** | improvement |
+|---|---|---|---|
+| image size | 139 MB | **14.2 MB** | 9.8x |
+| RSS idle | 91.0 MB | **4.3 MB** | 21.1x |
+| RSS with 50 ConfigMaps x 8 kB | 91.7 MB | **5.5 MB** | 16.7x |
 
 **The cost is fixed, not per-workload.** Syncing 50 ConfigMaps instead of none
 adds 0.7 MB. Import-time attribution explains the rest:
@@ -74,8 +74,17 @@ being a usable differential oracle. See `NOTES.md`.
 - [x] Phase 1 — port upstream suite, green against Python (**55/55**)
 - [x] Phase 2 — extend suite over the untested surface (**33/33**, self-tested)
 - [x] Phase 3 — memory/image-size measurement in-harness (baseline recorded)
-- [ ] Phase 4 — Rust implementation
+- [x] Phase 4 — Rust implementation (**55/55 + 33/33 + selftest green**)
 - [ ] Phase 5 — compare, tune, document
+
+## Implementation
+
+A single ~5 MB static musl binary (`src/`, ~1900 lines) on a busybox base:
+one `current_thread` tokio runtime, a task per (resource x namespace) like
+upstream's threads, kube-rs for the API (in-cluster auth, watch), reqwest for
+`*.url`/`REQ_URL`, and hand-rolled logging that matches upstream's JSON/LOGFMT
+output byte-for-byte where the tests grep it. Known deviations are listed in
+`NOTES.md`; everything else — including upstream's quirks — is replicated.
 
 ## Layout
 

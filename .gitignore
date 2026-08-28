@@ -1,4 +1,12 @@
 /target
 test/.out/
+test/.measure/
 test/.upstream/
 test/server/static/kubelogo.png
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target

@@ -98,17 +98,19 @@ check_pod_log_count() {
 check_pod_file_exists() { check_exists "$1" "$2"; }
 
 # check_http_from_pod <pod> <url> <description>   -- expects success
+#
+# Uses busybox wget rather than the upstream CI's `python -c urllib` so the
+# probe works against any sidecar image, not just the Python one. Both the
+# reference image (python:alpine) and the Rust image (busybox) carry it.
 check_http_from_pod() {
-  if kubectl exec "$1" -- python -c \
-      "import urllib.request; urllib.request.urlopen('$2', timeout=5)" >/dev/null 2>&1; then
+  if kubectl exec "$1" -- wget -q -T 5 -O /dev/null "$2" >/dev/null 2>&1; then
     _pass "$3"
   else _fail "$3" "request to $2 failed"; fi
 }
 
 # check_http_from_pod_fails <pod> <url> <description>  -- expects failure
 check_http_from_pod_fails() {
-  if kubectl exec "$1" -- python -c \
-      "import urllib.request; urllib.request.urlopen('$2', timeout=5)" >/dev/null 2>&1; then
+  if kubectl exec "$1" -- wget -q -T 5 -O /dev/null "$2" >/dev/null 2>&1; then
     _fail "$3" "request to $2 unexpectedly succeeded"
   else _pass "$3"; fi
 }
