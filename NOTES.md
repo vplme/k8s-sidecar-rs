@@ -161,6 +161,14 @@ whenever an assertion helper changes.
   first line silently replaced by a run of spaces.
 - The measurement reports originally lived in `test/.out`, which run.sh
   recreates; they moved to `test/.measure` after a run erased the baseline.
+- **amd64 cannot be cross-built from this arm64 sandbox.** aws-lc-sys
+  compiled with `x86_64-linux-gnu-gcc` against glibc headers leaks
+  `__isoc23_sscanf` into a musl link. A true musl cross toolchain would fix
+  it, but musl.cc only publishes x86_64-hosted binaries and this sandbox has
+  no binfmt emulation. Resolution: CI builds each arch natively on its own
+  runner (see `.github/workflows/build_and_test.yaml`); the workflow is
+  authored but not executable from this sandbox, so treat its first run as
+  untested.
 
 ## Measurement method (Phase 3)
 

@@ -1,0 +1,99 @@
+# Build the multi-arch image and run the conformance suites against a kind
+# cluster — the CI equivalent of `make test-all`-for-rust plus per-arch native
+# builds (no cross-compiling: aws-lc-sys needs a true musl cross toolchain,
+# so each arch builds on its own runner instead).
+#
+# NOTE: authored in a sandbox without GitHub Actions access; the suites and
+# Makefile targets it invokes are exercised locally, the workflow itself is not.
+name: "Build and Test"
+permissions:
+  contents: read
+on:
+  - pull_request
+  - workflow_dispatch
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            arch: arm64
+    name: "Build ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools cmake
+      - name: Build static binary
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build image
+        run: |
+          mkdir -p /tmp/ctx
+          cp Dockerfile /tmp/ctx/
+          cp target/${{ matrix.target }}/release/k8s-sidecar-rs /tmp/ctx/
+          docker build --provenance=false --sbom=false \
+            -t k8s-sidecar-rs:testing /tmp/ctx
+          docker save k8s-sidecar-rs:testing -o /tmp/k8s-sidecar-rs-${{ matrix.arch }}.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: /tmp/k8s-sidecar-rs-${{ matrix.arch }}.tar
+
+  test:
+    needs: build
+    strategy:
+      matrix:
+        k8s: [v1.29.14, v1.31.14, v1.34.3]
+    name: "Conformance on k8s ${{ matrix.k8s }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          node_image: kindest/node:${{ matrix.k8s }}
+          config: test/kind-config.yaml
+          cluster_name: sidecar-testing
+          wait: 5m
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-amd64
+          path: /tmp
+      - name: Load image under test
+        run: |
+          docker load -i /tmp/k8s-sidecar-rs-amd64.tar
+          kind load docker-image k8s-sidecar-rs:testing --name sidecar-testing
+      - name: Build support images
+        run: |
+          cp test/kubelogo.png test/server/static/
+          docker build -t dummy-server:1.0.0 test/server
+          docker build --provenance=false --sbom=false \
+            -t ext-inspector:1.0 test/ext/inspector
+      - name: Ported upstream suite
+        run: |
+          SIDECAR_IMAGE=k8s-sidecar-rs:testing DUMMY_IMAGE=dummy-server:1.0.0 \
+            SCRIPT_FLAVOR=sh ./test/run.sh
+      - name: Extended suite
+        run: |
+          SIDECAR_IMAGE=k8s-sidecar-rs:testing INSPECTOR_IMAGE=ext-inspector:1.0 \
+            ./test/run-ext.sh
+      - name: Assertion self-test
+        run: ./test/selftest.sh

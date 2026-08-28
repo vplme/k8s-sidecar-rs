@@ -21,19 +21,19 @@ pub fn write_data_to_file(
     data: &[u8],
     data_type: &str,
 ) -> std::io::Result<bool> {
-    if !Path::new(folder).exists() {
-        if let Err(e) = std::fs::create_dir_all(folder) {
-            match e.kind() {
-                ErrorKind::PermissionDenied => {
-                    logger::error(&format!(
-                        "Error: insufficient privileges to create {}. Skipping {}.",
-                        folder, filename
-                    ));
-                    return Ok(false);
-                }
-                ErrorKind::AlreadyExists => {}
-                _ => return Err(e),
+    if !Path::new(folder).exists()
+        && let Err(e) = std::fs::create_dir_all(folder)
+    {
+        match e.kind() {
+            ErrorKind::PermissionDenied => {
+                logger::error(&format!(
+                    "Error: insufficient privileges to create {}. Skipping {}.",
+                    folder, filename
+                ));
+                return Ok(false);
             }
+            ErrorKind::AlreadyExists => {}
+            _ => return Err(e),
         }
     }
 
@@ -49,17 +49,24 @@ pub fn write_data_to_file(
         }
     }
 
-    logger::info(&format!("Writing {} ({})", absolute_path.display(), data_type));
+    logger::info(&format!(
+        "Writing {} ({})",
+        absolute_path.display(),
+        data_type
+    ));
     std::fs::write(&absolute_path, data)?;
 
-    if let Ok(mode_str) = std::env::var("DEFAULT_FILE_MODE") {
-        if !mode_str.is_empty() {
-            // Invalid octal bubbles up like Python's ValueError.
-            let mode = u32::from_str_radix(&mode_str, 8).map_err(|e| {
-                std::io::Error::new(ErrorKind::InvalidData, format!("invalid DEFAULT_FILE_MODE: {}", e))
-            })?;
-            std::fs::set_permissions(&absolute_path, std::fs::Permissions::from_mode(mode))?;
-        }
+    if let Ok(mode_str) = std::env::var("DEFAULT_FILE_MODE")
+        && !mode_str.is_empty()
+    {
+        // Invalid octal bubbles up like Python's ValueError.
+        let mode = u32::from_str_radix(&mode_str, 8).map_err(|e| {
+            std::io::Error::new(
+                ErrorKind::InvalidData,
+                format!("invalid DEFAULT_FILE_MODE: {}", e),
+            )
+        })?;
+        std::fs::set_permissions(&absolute_path, std::fs::Permissions::from_mode(mode))?;
     }
     Ok(true)
 }
@@ -78,7 +85,12 @@ pub fn remove_file(folder: &str, filename: &str) -> bool {
     }
 }
 
-pub fn unique_filename(filename: &str, namespace: &str, resource: &str, resource_name: &str) -> String {
+pub fn unique_filename(
+    filename: &str,
+    namespace: &str,
+    resource: &str,
+    resource_name: &str,
+) -> String {
     format!(
         "namespace_{}.{}_{}.{}",
         namespace, resource, resource_name, filename

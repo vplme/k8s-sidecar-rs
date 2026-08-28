@@ -75,7 +75,31 @@ being a usable differential oracle. See `NOTES.md`.
 - [x] Phase 2 — extend suite over the untested surface (**33/33**, self-tested)
 - [x] Phase 3 — memory/image-size measurement in-harness (baseline recorded)
 - [x] Phase 4 — Rust implementation (**55/55 + 33/33 + selftest green**)
-- [ ] Phase 5 — compare, tune, document
+- [x] Phase 5 — lint clean, CI workflow, usage docs
+
+## Using it
+
+Drop-in: replace the image in an existing kiwigrid/k8s-sidecar pod spec.
+Every environment variable, CLI flag, and log line documented by
+[upstream](https://github.com/kiwigrid/k8s-sidecar#configuration-environment-variables)
+behaves identically (deviations: `NOTES.md`, none observable by upstream's
+own test suite).
+
+```yaml
+containers:
+  - name: sidecar
+    image: k8s-sidecar-rs:latest   # was: kiwigrid/k8s-sidecar:<version>
+    env:
+      - {name: LABEL, value: "findme"}
+      - {name: FOLDER, value: /data}
+      - {name: RESOURCE, value: both}
+```
+
+Build it locally with `make rust-image` (host toolchain: rustup with the
+`<arch>-unknown-linux-musl` target, musl-tools, cmake). Cross-building is not
+supported — aws-lc-sys needs a true musl cross toolchain — so multi-arch
+images are produced by CI building natively per architecture
+(`.github/workflows/build_and_test.yaml`).
 
 ## Implementation
 

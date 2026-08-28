@@ -25,10 +25,16 @@ pub struct HttpCfg {
 static CFG: OnceLock<HttpCfg> = OnceLock::new();
 
 fn envf(name: &str, default: f64) -> f64 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 fn envu(name: &str, default: u32) -> u32 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 /// Read once at startup, like upstream's module-level constants.
@@ -78,17 +84,23 @@ fn fetch_basic_auth_credentials() -> (Option<String>, Option<String>) {
     let mut password = std::env::var("REQ_PASSWORD").ok();
     // CLI flags take precedence over the *_FILE env vars; file contents
     // override the plain env vars only when the file is readable.
-    let user_file = c.username_file_flag.clone().or_else(|| std::env::var("REQ_USERNAME_FILE").ok());
-    let pass_file = c.password_file_flag.clone().or_else(|| std::env::var("REQ_PASSWORD_FILE").ok());
-    if let Some(f) = user_file {
-        if let Some(v) = read_file_content(&f) {
-            username = Some(v);
-        }
+    let user_file = c
+        .username_file_flag
+        .clone()
+        .or_else(|| std::env::var("REQ_USERNAME_FILE").ok());
+    let pass_file = c
+        .password_file_flag
+        .clone()
+        .or_else(|| std::env::var("REQ_PASSWORD_FILE").ok());
+    if let Some(f) = user_file
+        && let Some(v) = read_file_content(&f)
+    {
+        username = Some(v);
     }
-    if let Some(f) = pass_file {
-        if let Some(v) = read_file_content(&f) {
-            password = Some(v);
-        }
+    if let Some(f) = pass_file
+        && let Some(v) = read_file_content(&f)
+    {
+        password = Some(v);
     }
     (username, password)
 }
@@ -120,7 +132,10 @@ fn basic_auth_header() -> Option<String> {
     raw.push(b':');
     raw.extend(encode_cred(&pass, &encoding));
     use base64::Engine;
-    Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(raw)))
+    Some(format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(raw)
+    ))
 }
 
 /// Mirror of helpers.request(). Returns Some((status, body)) when a response
@@ -134,7 +149,11 @@ pub async fn request(
     payload: Option<&serde_json::Value>,
 ) -> Option<(u16, Vec<u8>)> {
     let c = cfg();
-    let enforce_status: &[u16] = if enable_5xx { &[] } else { &[500, 502, 503, 504] };
+    let enforce_status: &[u16] = if enable_5xx {
+        &[]
+    } else {
+        &[500, 502, 503, 504]
+    };
 
     let auth = basic_auth_header();
 
@@ -161,7 +180,10 @@ pub async fn request(
     {
         Ok(cl) => cl,
         Err(e) => {
-            logger::error(&format!("Unexpected error during request to {}: {}", url, e));
+            logger::error(&format!(
+                "Unexpected error during request to {}: {}",
+                url, e
+            ));
             logger::debug(&format!("Returning dummy response for URL {}", url));
             return None;
         }
@@ -175,7 +197,11 @@ pub async fn request(
             let backoff = (c.backoff_factor * 2f64.powi(attempt as i32 - 1)).min(120.0);
             tokio::time::sleep(Duration::from_secs_f64(backoff)).await;
         }
-        let mut req = if is_get { client.get(url) } else { client.post(url) };
+        let mut req = if is_get {
+            client.get(url)
+        } else {
+            client.post(url)
+        };
         if let Some(a) = &auth {
             req = req.header(reqwest::header::AUTHORIZATION, a.clone());
         }
@@ -199,7 +225,10 @@ pub async fn request(
                 if is_get {
                     logger::info(&format!(
                         "Request sent to {}. Response: {} {} {}",
-                        url, status.as_u16(), reason, text
+                        url,
+                        status.as_u16(),
+                        reason,
+                        text
                     ));
                 } else {
                     let payload_repr = payload
@@ -207,7 +236,11 @@ pub async fn request(
                         .unwrap_or_else(|| "None".into());
                     logger::info(&format!(
                         "{} sent to {}. Response: {} {} {}",
-                        payload_repr, url, status.as_u16(), reason, text
+                        payload_repr,
+                        url,
+                        status.as_u16(),
+                        reason,
+                        text
                     ));
                 }
                 return Some((status.as_u16(), body));

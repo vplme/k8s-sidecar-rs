@@ -70,7 +70,10 @@ enum Content {
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 async fn throttle() {
@@ -95,6 +98,8 @@ fn get_destination_folder(item: &Item, ctx: &Ctx) -> String {
     ctx.target_folder.clone()
 }
 
+// Mirrors the Python signature; splitting it would only obscure the mapping.
+#[allow(clippy::too_many_arguments)]
 async fn update_file(
     data_key: &str,
     content: Content,
@@ -108,8 +113,8 @@ async fn update_file(
     let result: Result<bool, String> = async {
         // _get_file_data_and_name: the .url fetch happens even on the removal
         // path, exactly like upstream.
-        let (filename, data): (String, Vec<u8>) = if data_key.ends_with(".url") {
-            let filename = data_key[..data_key.len() - 4].to_string();
+        let (filename, data): (String, Vec<u8>) = if let Some(stripped) = data_key.strip_suffix(".url") {
+            let filename = stripped.to_string();
             let url = match &content {
                 Content::Bin(b) => String::from_utf8(b.clone()).map_err(|e| e.to_string())?,
                 Content::Text(t) => t.clone(),
@@ -162,16 +167,30 @@ async fn iterate_data(
 ) -> bool {
     let mut changed = false;
     for (key, content) in data {
-        changed |= update_file(&key, content, dest_folder, item, kind, ctx, content_type, remove).await;
+        changed |= update_file(
+            &key,
+            content,
+            dest_folder,
+            item,
+            kind,
+            ctx,
+            content_type,
+            remove,
+        )
+        .await;
     }
     changed
 }
 
 fn text_entries(m: &BTreeMap<String, String>) -> Vec<(String, Content)> {
-    m.iter().map(|(k, v)| (k.clone(), Content::Text(v.clone()))).collect()
+    m.iter()
+        .map(|(k, v)| (k.clone(), Content::Text(v.clone())))
+        .collect()
 }
 fn bin_entries(m: &BTreeMap<String, Vec<u8>>) -> Vec<(String, Content)> {
-    m.iter().map(|(k, v)| (k.clone(), Content::Bin(v.clone()))).collect()
+    m.iter()
+        .map(|(k, v)| (k.clone(), Content::Bin(v.clone())))
+        .collect()
 }
 
 /// Keys of `old` minus those also present in `new` — the stale-key diff.
@@ -207,7 +226,8 @@ async fn process_resource(
             m.object.remove(&key);
         } else {
             m.object.insert(key.clone(), item.clone());
-            m.dest.insert(key.clone(), dest_folder.unwrap_or_default().to_string());
+            m.dest
+                .insert(key.clone(), dest_folder.unwrap_or_default().to_string());
         }
         (old_item, old_dest)
     };
@@ -225,41 +245,67 @@ async fn process_resource(
             }
             if let Some(text) = &item.text {
                 logger::debug(&format!("Found 'data' on {}", kind.as_str()));
-                changed |=
-                    iterate_data(text_entries(text), &dest, item, kind, ctx, CONTENT_TYPE_TEXT, is_removed).await;
+                changed |= iterate_data(
+                    text_entries(text),
+                    &dest,
+                    item,
+                    kind,
+                    ctx,
+                    CONTENT_TYPE_TEXT,
+                    is_removed,
+                )
+                .await;
             }
-            if let Some(old_text) = &old_item.text {
-                if !is_removed {
-                    let leftovers = if old_dest == dest {
-                        minus_common(old_text, item.text.as_ref())
-                    } else {
-                        old_text.clone()
-                    };
-                    changed |= iterate_data(
-                        text_entries(&leftovers), &old_dest, &old_item, kind, ctx, CONTENT_TYPE_TEXT, true,
-                    )
-                    .await;
-                }
+            if let Some(old_text) = &old_item.text
+                && !is_removed
+            {
+                let leftovers = if old_dest == dest {
+                    minus_common(old_text, item.text.as_ref())
+                } else {
+                    old_text.clone()
+                };
+                changed |= iterate_data(
+                    text_entries(&leftovers),
+                    &old_dest,
+                    &old_item,
+                    kind,
+                    ctx,
+                    CONTENT_TYPE_TEXT,
+                    true,
+                )
+                .await;
             }
             if let Some(bin) = &item.binary {
                 logger::debug(&format!("Found 'binary_data' on {}", kind.as_str()));
                 changed |= iterate_data(
-                    bin_entries(bin), &dest, item, kind, ctx, CONTENT_TYPE_BASE64_BINARY, is_removed,
+                    bin_entries(bin),
+                    &dest,
+                    item,
+                    kind,
+                    ctx,
+                    CONTENT_TYPE_BASE64_BINARY,
+                    is_removed,
                 )
                 .await;
             }
-            if let Some(old_bin) = &old_item.binary {
-                if !is_removed {
-                    let leftovers = if old_dest == dest {
-                        minus_common(old_bin, item.binary.as_ref())
-                    } else {
-                        old_bin.clone()
-                    };
-                    changed |= iterate_data(
-                        bin_entries(&leftovers), &old_dest, &old_item, kind, ctx, CONTENT_TYPE_BASE64_BINARY, true,
-                    )
-                    .await;
-                }
+            if let Some(old_bin) = &old_item.binary
+                && !is_removed
+            {
+                let leftovers = if old_dest == dest {
+                    minus_common(old_bin, item.binary.as_ref())
+                } else {
+                    old_bin.clone()
+                };
+                changed |= iterate_data(
+                    bin_entries(&leftovers),
+                    &old_dest,
+                    &old_item,
+                    kind,
+                    ctx,
+                    CONTENT_TYPE_BASE64_BINARY,
+                    true,
+                )
+                .await;
             }
         }
         Kind::Secret => {
@@ -268,22 +314,34 @@ async fn process_resource(
             }
             if let Some(bin) = &item.binary {
                 changed |= iterate_data(
-                    bin_entries(bin), &dest, item, kind, ctx, CONTENT_TYPE_BASE64_BINARY, is_removed,
+                    bin_entries(bin),
+                    &dest,
+                    item,
+                    kind,
+                    ctx,
+                    CONTENT_TYPE_BASE64_BINARY,
+                    is_removed,
                 )
                 .await;
             }
-            if let Some(old_bin) = &old_item.binary {
-                if !is_removed {
-                    let leftovers = if old_dest == dest {
-                        minus_common(old_bin, item.binary.as_ref())
-                    } else {
-                        old_bin.clone()
-                    };
-                    changed |= iterate_data(
-                        bin_entries(&leftovers), &old_dest, &old_item, kind, ctx, CONTENT_TYPE_BASE64_BINARY, true,
-                    )
-                    .await;
-                }
+            if let Some(old_bin) = &old_item.binary
+                && !is_removed
+            {
+                let leftovers = if old_dest == dest {
+                    minus_common(old_bin, item.binary.as_ref())
+                } else {
+                    old_bin.clone()
+                };
+                changed |= iterate_data(
+                    bin_entries(&leftovers),
+                    &old_dest,
+                    &old_item,
+                    kind,
+                    ctx,
+                    CONTENT_TYPE_BASE64_BINARY,
+                    true,
+                )
+                .await;
             }
         }
     }
@@ -419,7 +477,13 @@ pub async fn list_resources(
             script::execute(s).await.map_err(WErr::Other)?;
         }
         if let Some(url) = request_url {
-            http::request(Some(url), ctx.req_method.as_deref(), ctx.enable_5xx, ctx.req_payload.as_ref()).await;
+            http::request(
+                Some(url),
+                ctx.req_method.as_deref(),
+                ctx.enable_5xx,
+                ctx.req_payload.as_ref(),
+            )
+            .await;
         }
     }
     Ok(())
@@ -450,9 +514,15 @@ async fn watch_resource_iterator(
         ns_repr
     ));
 
-    let mut stream = kubeapi::watch_items(client, kind, namespace, &sel, ctx.watch_server_timeout as u32)
-        .await
-        .map_err(WErr::Kube)?;
+    let mut stream = kubeapi::watch_items(
+        client,
+        kind,
+        namespace,
+        &sel,
+        ctx.watch_server_timeout as u32,
+    )
+    .await
+    .map_err(WErr::Kube)?;
 
     let mut first_event = true;
     while let Some(ev) = stream.next().await {
@@ -510,7 +580,13 @@ async fn watch_resource_iterator(
                 script::execute(s).await.map_err(WErr::Other)?;
             }
             if let Some(url) = request_url {
-                http::request(Some(url), ctx.req_method.as_deref(), ctx.enable_5xx, ctx.req_payload.as_ref()).await;
+                http::request(
+                    Some(url),
+                    ctx.req_method.as_deref(),
+                    ctx.enable_5xx,
+                    ctx.req_payload.as_ref(),
+                )
+                .await;
             }
         }
     }
@@ -529,11 +605,19 @@ pub async fn watch_task(
     alive: Arc<AtomicBool>,
 ) {
     loop {
-        let sleep_mode =
-            ctx.mode.as_deref() == Some("SLEEP") || (namespace != "ALL" && !ctx.resource_name.is_empty());
+        let sleep_mode = ctx.mode.as_deref() == Some("SLEEP")
+            || (namespace != "ALL" && !ctx.resource_name.is_empty());
 
         let result = if sleep_mode {
-            match list_resources(&client, &ctx, kind, &namespace, request_url.as_deref(), ignore_already_processed).await
+            match list_resources(
+                &client,
+                &ctx,
+                kind,
+                &namespace,
+                request_url.as_deref(),
+                ignore_already_processed,
+            )
+            .await
             {
                 Ok(()) => {
                     tokio::time::sleep(Duration::from_secs(env_u64("SLEEP_TIME", 60))).await;
@@ -542,8 +626,15 @@ pub async fn watch_task(
                 Err(e) => Err(e),
             }
         } else {
-            watch_resource_iterator(&client, &ctx, kind, &namespace, request_url.as_deref(), ignore_already_processed)
-                .await
+            watch_resource_iterator(
+                &client,
+                &ctx,
+                kind,
+                &namespace,
+                request_url.as_deref(),
+                ignore_already_processed,
+            )
+            .await
         };
 
         if let Err(e) = result {
@@ -565,7 +656,10 @@ pub async fn watch_task(
                     throttle().await;
                 }
                 WErr::Kube(other) => {
-                    logger::error(&format!("ProtocolError when calling kubernetes: {}\n", other));
+                    logger::error(&format!(
+                        "ProtocolError when calling kubernetes: {}\n",
+                        other
+                    ));
                     throttle().await;
                 }
                 WErr::Other(msg) => {

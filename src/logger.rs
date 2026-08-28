@@ -88,67 +88,66 @@ pub fn init() {
     let utc = std::env::var("LOG_TZ").unwrap_or_default().to_uppercase() == "UTC";
     let mut sink = Sink::Stderr;
 
-    if let Ok(conf_path) = std::env::var("LOG_CONFIG") {
-        if !conf_path.is_empty() {
-            let text = match std::fs::read_to_string(&conf_path) {
-                Ok(t) => t,
-                Err(_) => {
-                    // Upstream: plain print + sys.exit(1)
-                    println!("Config file: {} Not Found", conf_path);
-                    std::process::exit(1);
+    if let Ok(conf_path) = std::env::var("LOG_CONFIG")
+        && !conf_path.is_empty()
+    {
+        let text = match std::fs::read_to_string(&conf_path) {
+            Ok(t) => t,
+            Err(_) => {
+                // Upstream: plain print + sys.exit(1)
+                println!("Config file: {} Not Found", conf_path);
+                std::process::exit(1);
+            }
+        };
+        let doc: serde_yaml::Value = match serde_yaml::from_str(&text) {
+            Ok(d) => d,
+            Err(e) => {
+                println!("Error loading yaml file:");
+                println!("{}", e);
+                std::process::exit(2);
+            }
+        };
+        if let Some(l) = doc["root"]["level"]
+            .as_str()
+            .or_else(|| doc["handlers"]["console"]["level"].as_str())
+            .and_then(Level::parse)
+        {
+            level = l;
+        }
+        let handler = &doc["handlers"]["console"];
+        if let Some(fmt_name) = handler["formatter"].as_str() {
+            if let Some(cls) = doc["formatters"][fmt_name]["()"].as_str() {
+                format = if cls.contains("Logfmt") {
+                    Format::Logfmt
+                } else {
+                    Format::Json
+                };
+            } else if fmt_name.to_uppercase().contains("LOGFMT") {
+                format = Format::Logfmt;
+            }
+        }
+        if handler["class"]
+            .as_str()
+            .is_some_and(|c| c.contains("FileHandler"))
+            && let Some(filename) = handler["filename"].as_str()
+        {
+            let path = PathBuf::from(filename);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match OpenOptions::new().create(true).append(true).open(&path) {
+                Ok(f) => {
+                    sink = Sink::RotatingFile {
+                        path,
+                        max_bytes: handler["maxBytes"].as_u64().unwrap_or(0),
+                        backup_count: handler["backupCount"].as_u64().unwrap_or(0) as u32,
+                        file: Mutex::new(f),
+                    }
                 }
-            };
-            let doc: serde_yaml::Value = match serde_yaml::from_str(&text) {
-                Ok(d) => d,
                 Err(e) => {
                     println!("Error loading yaml file:");
-                    println!("{}", e);
+                    println!("cannot open log file {}: {}", filename, e);
                     std::process::exit(2);
-                }
-            };
-            if let Some(l) = doc["root"]["level"]
-                .as_str()
-                .or_else(|| doc["handlers"]["console"]["level"].as_str())
-                .and_then(Level::parse)
-            {
-                level = l;
-            }
-            let handler = &doc["handlers"]["console"];
-            if let Some(fmt_name) = handler["formatter"].as_str() {
-                if let Some(cls) = doc["formatters"][fmt_name]["()"].as_str() {
-                    format = if cls.contains("Logfmt") {
-                        Format::Logfmt
-                    } else {
-                        Format::Json
-                    };
-                } else if fmt_name.to_uppercase().contains("LOGFMT") {
-                    format = Format::Logfmt;
-                }
-            }
-            if handler["class"]
-                .as_str()
-                .is_some_and(|c| c.contains("FileHandler"))
-            {
-                if let Some(filename) = handler["filename"].as_str() {
-                    let path = PathBuf::from(filename);
-                    if let Some(parent) = path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    match OpenOptions::new().create(true).append(true).open(&path) {
-                        Ok(f) => {
-                            sink = Sink::RotatingFile {
-                                path,
-                                max_bytes: handler["maxBytes"].as_u64().unwrap_or(0),
-                                backup_count: handler["backupCount"].as_u64().unwrap_or(0) as u32,
-                                file: Mutex::new(f),
-                            }
-                        }
-                        Err(e) => {
-                            println!("Error loading yaml file:");
-                            println!("cannot open log file {}: {}", filename, e);
-                            std::process::exit(2);
-                        }
-                    }
                 }
             }
         }
@@ -164,15 +163,24 @@ pub fn init() {
 
 fn timestamp(utc: bool) -> String {
     if utc {
-        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.6f%:z").to_string()
+        chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.6f%:z")
+            .to_string()
     } else {
-        chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.6f%:z").to_string()
+        chrono::Local::now()
+            .format("%Y-%m-%dT%H:%M:%S%.6f%:z")
+            .to_string()
     }
 }
 
 fn logfmt_value(v: &str) -> String {
     if v.is_empty() || v.contains(' ') || v.contains('=') || v.contains('"') {
-        format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"))
+        format!(
+            "\"{}\"",
+            v.replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+        )
     } else {
         v.to_string()
     }

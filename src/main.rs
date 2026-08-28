@@ -12,8 +12,8 @@ mod logger;
 mod resources;
 mod script;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use resources::{Ctx, WErr};
@@ -84,7 +84,9 @@ async fn run() {
 
     // SIGTERM: upstream logs and exits 0 for graceful pod shutdown.
     tokio::spawn(async {
-        if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        if let Ok(mut sig) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
             sig.recv().await;
             logger::info("Subprocess exiting gracefully");
             std::process::exit(0);
@@ -107,10 +109,10 @@ async fn run() {
     };
 
     let label_value = env("LABEL_VALUE");
-    if let Some(v) = &label_value {
-        if !v.is_empty() {
-            logger::debug(&format!("Filter labels with value: {}", v));
-        }
+    if let Some(v) = &label_value
+        && !v.is_empty()
+    {
+        logger::debug(&format!("Filter labels with value: {}", v));
     }
 
     let Some(target_folder) = env("FOLDER") else {
@@ -138,7 +140,10 @@ async fn run() {
 
     let request_method = env("REQ_METHOD");
     let request_url = env("REQ_URL");
-    let request_skip_init = env("REQ_SKIP_INIT").unwrap_or_else(|| "false".into()).to_lowercase() == "true";
+    let request_skip_init = env("REQ_SKIP_INIT")
+        .unwrap_or_else(|| "false".into())
+        .to_lowercase()
+        == "true";
 
     let request_payload = env("REQ_PAYLOAD").filter(|p| !p.is_empty()).map(|p| {
         serde_json::from_str::<serde_json::Value>(&p).unwrap_or_else(|_| {
@@ -175,11 +180,22 @@ async fn run() {
     if env_is_true("IGNORE_ALREADY_PROCESSED") {
         match kubeapi::server_version(&client).await {
             Ok(version) => {
-                let v_major: String = version.major.chars().filter(|c| c.is_ascii_digit()).collect();
-                let v_minor: String = version.minor.chars().filter(|c| c.is_ascii_digit()).collect();
+                let v_major: String = version
+                    .major
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .collect();
+                let v_minor: String = version
+                    .minor
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .collect();
                 let maj: u64 = v_major.parse().unwrap_or(0);
                 let min: u64 = v_minor.parse().unwrap_or(0);
-                if !v_major.is_empty() && !v_minor.is_empty() && (maj > 1 || (maj == 1 && min >= 19)) {
+                if !v_major.is_empty()
+                    && !v_minor.is_empty()
+                    && (maj > 1 || (maj == 1 && min >= 19))
+                {
                     logger::info("Ignore already processed resource version will be enabled.");
                     ignore_already_processed = true;
                 } else {
@@ -200,7 +216,9 @@ async fn run() {
 
     // Upstream reads the ServiceAccount namespace file unconditionally, even
     // when NAMESPACE is set, and dies if it is missing. Kept.
-    let sa_namespace = match std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace") {
+    let sa_namespace = match std::fs::read_to_string(
+        "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+    ) {
         Ok(ns) => ns,
         Err(e) => {
             logger::error(&format!(
@@ -226,16 +244,26 @@ async fn run() {
         enable_5xx,
         resource_name,
         mode: method.clone(),
-        watch_server_timeout: env("WATCH_SERVER_TIMEOUT").and_then(|v| v.parse().ok()).unwrap_or(60),
-        watch_client_timeout: env("WATCH_CLIENT_TIMEOUT").and_then(|v| v.parse().ok()).unwrap_or(66),
+        watch_server_timeout: env("WATCH_SERVER_TIMEOUT")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60),
+        watch_client_timeout: env("WATCH_CLIENT_TIMEOUT")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(66),
     });
 
     if method.as_deref() == Some("LIST") {
         for kind in &kinds {
             for ns in namespace.split(',') {
-                if let Err(e) =
-                    resources::list_resources(&client, &ctx, *kind, ns, request_url.as_deref(), ignore_already_processed)
-                        .await
+                if let Err(e) = resources::list_resources(
+                    &client,
+                    &ctx,
+                    *kind,
+                    ns,
+                    request_url.as_deref(),
+                    ignore_already_processed,
+                )
+                .await
                 {
                     logger::error(&werr_to_string(&e));
                     std::process::exit(1);
@@ -257,8 +285,15 @@ async fn run() {
     for kind in &kinds {
         for ns in namespace.split(',') {
             // ignore_already_processed=true for the initial list, like upstream.
-            if let Err(e) =
-                resources::list_resources(&client, &ctx, *kind, ns, init_request_url.as_deref(), true).await
+            if let Err(e) = resources::list_resources(
+                &client,
+                &ctx,
+                *kind,
+                ns,
+                init_request_url.as_deref(),
+                true,
+            )
+            .await
             {
                 logger::error(&werr_to_string(&e));
                 std::process::exit(1);
@@ -270,7 +305,12 @@ async fn run() {
     logger::info("Initial sync complete, sidecar is ready.");
 
     // One watcher task per (resource, namespace), like upstream's threads.
-    let mut watchers: Vec<(tokio::task::JoinHandle<()>, String, kubeapi::Kind, Arc<AtomicBool>)> = Vec::new();
+    let mut watchers: Vec<(
+        tokio::task::JoinHandle<()>,
+        String,
+        kubeapi::Kind,
+        Arc<AtomicBool>,
+    )> = Vec::new();
     for kind in &kinds {
         for ns in namespace.split(',') {
             let alive = Arc::new(AtomicBool::new(true));

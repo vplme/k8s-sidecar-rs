@@ -67,15 +67,16 @@ impl Item {
             resource_version: sec.metadata.resource_version.unwrap_or_default(),
             annotations: sec.metadata.annotations.unwrap_or_default(),
             text: None,
-            binary: sec.data.map(|m| m.into_iter().map(|(k, v)| (k, v.0)).collect()),
+            binary: sec
+                .data
+                .map(|m| m.into_iter().map(|(k, v)| (k, v.0)).collect()),
         }
     }
 }
 
 fn kubeconfig_path() -> Option<String> {
-    let path = std::env::var("KUBECONFIG").unwrap_or_else(|_| {
-        format!("{}/.kube/config", std::env::var("HOME").unwrap_or_default())
-    });
+    let path = std::env::var("KUBECONFIG")
+        .unwrap_or_else(|_| format!("{}/.kube/config", std::env::var("HOME").unwrap_or_default()));
     if std::path::Path::new(&path).exists() {
         Some(path)
     } else {
@@ -88,16 +89,29 @@ pub async fn init_client() -> Result<Client, String> {
     let mut config = match kubeconfig_path() {
         Some(path) => {
             logger::info(&format!("Loading config from '{}'...", path));
-            let kc = kube::config::Kubeconfig::read_from(&path)
-                .map_err(|e| format!("Unexpected error during Kubernetes client initialization: {}", e))?;
+            let kc = kube::config::Kubeconfig::read_from(&path).map_err(|e| {
+                format!(
+                    "Unexpected error during Kubernetes client initialization: {}",
+                    e
+                )
+            })?;
             Config::from_custom_kubeconfig(kc, &kube::config::KubeConfigOptions::default())
                 .await
-                .map_err(|e| format!("Unexpected error during Kubernetes client initialization: {}", e))?
+                .map_err(|e| {
+                    format!(
+                        "Unexpected error during Kubernetes client initialization: {}",
+                        e
+                    )
+                })?
         }
         None => {
             logger::info("Loading incluster config...");
-            Config::incluster()
-                .map_err(|e| format!("Unexpected error during Kubernetes client initialization: {}", e))?
+            Config::incluster().map_err(|e| {
+                format!(
+                    "Unexpected error during Kubernetes client initialization: {}",
+                    e
+                )
+            })?
         }
     };
 
@@ -127,7 +141,12 @@ pub async fn init_client() -> Result<Client, String> {
     let host = host.trim_end_matches('/');
     logger::debug(&format!("Config for cluster api at '{}' loaded.", host));
 
-    Client::try_from(config).map_err(|e| format!("Unexpected error during Kubernetes client initialization: {}", e))
+    Client::try_from(config).map_err(|e| {
+        format!(
+            "Unexpected error during Kubernetes client initialization: {}",
+            e
+        )
+    })
 }
 
 fn is_transport_error(e: &kube::Error) -> bool {
@@ -141,8 +160,14 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = kube::Result<T>>,
 {
-    let total: u32 = std::env::var("REQ_RETRY_TOTAL").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
-    let backoff: f64 = std::env::var("REQ_RETRY_BACKOFF_FACTOR").ok().and_then(|v| v.parse().ok()).unwrap_or(1.1);
+    let total: u32 = std::env::var("REQ_RETRY_TOTAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let backoff: f64 = std::env::var("REQ_RETRY_BACKOFF_FACTOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1.1);
     let mut attempt = 0u32;
     loop {
         match op().await {
@@ -207,14 +232,22 @@ pub async fn list_page(
             })
             .await?;
             let cont = list.metadata.continue_.clone().filter(|c| !c.is_empty());
-            Ok((list.items.into_iter().map(Item::from_secret).collect(), cont))
+            Ok((
+                list.items.into_iter().map(Item::from_secret).collect(),
+                cont,
+            ))
         }
     }
 }
 
 /// Read a single named resource; Ok(None) on 404 like upstream's tolerated
 /// ApiException(404).
-pub async fn read_named(client: &Client, kind: Kind, ns: &str, name: &str) -> kube::Result<Option<Item>> {
+pub async fn read_named(
+    client: &Client,
+    kind: Kind,
+    ns: &str,
+    name: &str,
+) -> kube::Result<Option<Item>> {
     match kind {
         Kind::ConfigMap => {
             let api = cm_api(client, ns);
@@ -249,7 +282,9 @@ pub async fn watch_items(
     label_selector: &str,
     timeout_secs: u32,
 ) -> kube::Result<BoxStream<'static, kube::Result<(&'static str, Item)>>> {
-    let wp = WatchParams::default().labels(label_selector).timeout(timeout_secs);
+    let wp = WatchParams::default()
+        .labels(label_selector)
+        .timeout(timeout_secs);
     match kind {
         Kind::ConfigMap => {
             let stream = cm_api(client, ns).watch(&wp, "0").await?;
@@ -285,6 +320,8 @@ pub async fn watch_items(
 }
 
 /// Kubernetes server version, for the IGNORE_ALREADY_PROCESSED >= 1.19 gate.
-pub async fn server_version(client: &Client) -> kube::Result<k8s_openapi::apimachinery::pkg::version::Info> {
+pub async fn server_version(
+    client: &Client,
+) -> kube::Result<k8s_openapi::apimachinery::pkg::version::Info> {
     client.apiserver_version().await
 }

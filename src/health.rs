@@ -57,11 +57,19 @@ fn status_body() -> (u16, &'static str, String) {
     let now_ms = h.start.elapsed().as_millis() as u64;
     let last = h.last_contact_ms.load(Ordering::Relaxed);
     if now_ms.saturating_sub(last) > K8S_CONTACT_THRESHOLD_SECONDS * 1000 {
-        return (503, "Service Unavailable", "NOT LIVE (K8s contact lost)".into());
+        return (
+            503,
+            "Service Unavailable",
+            "NOT LIVE (K8s contact lost)".into(),
+        );
     }
     let watchers = h.watchers.lock().unwrap();
     if !watchers.is_empty() && watchers.iter().any(|w| !w.load(Ordering::Relaxed)) {
-        return (503, "Service Unavailable", "NOT LIVE (watcher thread died)".into());
+        return (
+            503,
+            "Service Unavailable",
+            "NOT LIVE (watcher thread died)".into(),
+        );
     }
     (200, "OK", "OK".into())
 }
@@ -93,19 +101,36 @@ fn bind_listener(port: u16) -> std::io::Result<std::net::TcpListener> {
                         .map(|it| it.collect())
                         .unwrap_or_default();
                     addrs.sort_by_key(|a| if a.is_ipv6() { 0 } else { 1 });
-                    addrs.into_iter().next().ok_or_else(|| {
-                        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve HEALTH_HOST")
-                    })?
+                    addrs
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| std::io::Error::other("cannot resolve HEALTH_HOST"))?
                 }
             };
-            let domain = if addr.is_ipv6() { Domain::IPV6 } else { Domain::IPV4 };
+            let domain = if addr.is_ipv6() {
+                Domain::IPV6
+            } else {
+                Domain::IPV4
+            };
             bind(domain, addr)
         }
-        None => match bind(Domain::IPV6, "[::]:0".parse::<SocketAddr>().map(|mut a| { a.set_port(port); a }).unwrap()) {
+        None => match bind(
+            Domain::IPV6,
+            "[::]:0"
+                .parse::<SocketAddr>()
+                .map(|mut a| {
+                    a.set_port(port);
+                    a
+                })
+                .unwrap(),
+        ) {
             Ok(l) => Ok(l),
             Err(_) => {
                 logger::warning("IPv6 not available, falling back to IPv4 for the health server");
-                bind(Domain::IPV4, SocketAddr::new("0.0.0.0".parse().unwrap(), port))
+                bind(
+                    Domain::IPV4,
+                    SocketAddr::new("0.0.0.0".parse().unwrap(), port),
+                )
             }
         },
     }
