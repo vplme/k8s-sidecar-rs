@@ -1,0 +1,7 @@
+# Allowlist: the build stage needs only the manifest and sources. Keeps the
+# context small (no target/, test images) and keeps stray files — keys, junk
+# in the working tree — out of the docker daemon's hands.
+*
+!Cargo.toml
+!Cargo.lock
+!src
