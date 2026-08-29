@@ -7,6 +7,16 @@ messages, so it swaps into an existing pod spec with only an image change.
 
 ## Why
 
+This started on a small home server with a limited amount of RAM. A quick look
+at what was eating memory showed several k8s-sidecar containers — helm charts
+like Grafana's bundle one wherever ConfigMaps need syncing to disk — each
+idling at ~90 MB, and together they added up to a real chunk of a small
+machine. The sidecar's actual
+job (watch some resources, write some files) is tiny, so a more efficient
+implementation seemed worth having. With AI-assisted development, a full
+rewrite with a conformance harness to pin the behaviour is a much smaller
+undertaking than it used to be — so here it is.
+
 The Python implementation costs ~90 MB RSS per container. Measured breakdown on
 the reference image (`aarch64`, upstream commit `a61c7ac`):
 
