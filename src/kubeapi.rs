@@ -275,6 +275,15 @@ pub async fn read_named(
 /// One watch connection. The stream ends when the server closes it (after
 /// timeout_seconds); the caller reconnects, which re-delivers the current
 /// state as synthetic ADDED events — identical to upstream's loop.
+///
+/// The empty resourceVersion below is deliberate: upstream's Python watch
+/// sends no resourceVersion, which the apiserver treats as "get state and
+/// start at most recent" — a consistent quorum read. "0" would instead allow
+/// the reply to come from an arbitrarily stale watch cache, and on an HA
+/// control plane a reconnect landing on a lagging apiserver would rewrite
+/// files with old content and fire SCRIPT/REQ_URL on the spurious change.
+/// kube-core always serializes the parameter (`resourceVersion=`), and the
+/// apiserver decodes the empty string as unset.
 pub async fn watch_items(
     client: &Client,
     kind: Kind,
@@ -287,7 +296,7 @@ pub async fn watch_items(
         .timeout(timeout_secs);
     match kind {
         Kind::ConfigMap => {
-            let stream = cm_api(client, ns).watch(&wp, "0").await?;
+            let stream = cm_api(client, ns).watch(&wp, "").await?;
             Ok(stream
                 .filter_map(|ev| async move {
                     match ev {
@@ -302,7 +311,7 @@ pub async fn watch_items(
                 .boxed())
         }
         Kind::Secret => {
-            let stream = secret_api(client, ns).watch(&wp, "0").await?;
+            let stream = secret_api(client, ns).watch(&wp, "").await?;
             Ok(stream
                 .filter_map(|ev| async move {
                     match ev {

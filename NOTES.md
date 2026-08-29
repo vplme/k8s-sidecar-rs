@@ -79,6 +79,16 @@ Decision: copy bug-for-bug, document here, revisit deliberately later.
   empty-string-env-var-is-false rule applies to every boolean env var.
 - Env vars are read at different times: retry/timeout config once at startup,
   `SLEEP_TIME`, `ERROR_THROTTLE_SLEEP` and `DEFAULT_FILE_MODE` per use.
+- **Watch connections send an unset `resourceVersion`** (the empty string —
+  kube-core always serializes the parameter, and the apiserver decodes `""` as
+  unset, i.e. "get state and start at most recent", a consistent quorum read).
+  Upstream's Python watch passes no resource_version, which has the same
+  semantics. An earlier revision passed `"0"` ("start at any version"), which
+  permits arbitrarily stale watch-cache replies; on an HA control plane a
+  reconnect landing on a lagging apiserver would rewrite files with old content
+  and fire `SCRIPT`/`REQ_URL` on the spurious change. A single-apiserver kind
+  cluster can never reproduce this, so the conformance suites are blind to it —
+  do not regress it on the strength of a green harness run.
 
 ### Known deviations in the Rust implementation
 
