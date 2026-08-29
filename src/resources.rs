@@ -171,21 +171,22 @@ async fn update_file(
     let result: Result<bool, String> = async {
         // _get_file_data_and_name: the .url fetch happens even on the removal
         // path, exactly like upstream.
-        let (filename, data): (String, Vec<u8>) = if let Some(stripped) = data_key.strip_suffix(".url") {
-            let filename = stripped.to_string();
-            let url = match &content {
-                Content::Bin(b) => String::from_utf8(b.clone()).map_err(|e| e.to_string())?,
-                Content::Text(t) => t.clone(),
+        let (filename, data): (String, Vec<u8>) =
+            if let Some(stripped) = data_key.strip_suffix(".url") {
+                let filename = stripped.to_string();
+                let url = match &content {
+                    Content::Bin(b) => String::from_utf8(b.clone()).map_err(|e| e.to_string())?,
+                    Content::Text(t) => t.clone(),
+                };
+                let resp = http::request(Some(&url), Some("GET"), ctx.enable_5xx, None).await;
+                (filename, http::body_if_ok(resp))
+            } else {
+                let data = match &content {
+                    Content::Text(t) => t.clone().into_bytes(),
+                    Content::Bin(b) => b.clone(),
+                };
+                (data_key.to_string(), data)
             };
-            let resp = http::request(Some(&url), Some("GET"), ctx.enable_5xx, None).await;
-            (filename, http::body_if_ok(resp))
-        } else {
-            let data = match &content {
-                Content::Text(t) => t.clone().into_bytes(),
-                Content::Bin(b) => b.clone(),
-            };
-            (data_key.to_string(), data)
-        };
 
         let filename = if ctx.unique_filenames {
             files::unique_filename(&filename, &item.namespace, kind.as_str(), &item.name)
