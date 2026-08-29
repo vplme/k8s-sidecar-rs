@@ -50,14 +50,18 @@ test-reference:
 	SIDECAR_IMAGE=$(REFERENCE_IMAGE) DUMMY_IMAGE=$(DUMMY_IMAGE) \
 	  CLUSTER=$(CLUSTER) ./test/run.sh
 
-# Build the static musl binary on the host, then wrap it in the busybox image.
-# The build context is staged outside the repo mount (its dentry-cache quirks
-# corrupt docker build contexts and cargo build dirs alike).
+# Build the static musl binary on the host (incremental compilation keeps the
+# loop fast), then wrap it in the busybox image. `--build-context build=` makes
+# `COPY --from=build` read the host binary instead of running the Dockerfile's
+# in-image build stage. The context is staged outside the repo mount (its
+# dentry-cache quirks corrupt docker build contexts and cargo build dirs alike).
 rust-image:
 	cargo build --release --target aarch64-unknown-linux-musl
 	rm -rf /tmp/k8s-sidecar-rs-ctx && mkdir -p /tmp/k8s-sidecar-rs-ctx
 	cp Dockerfile "$$HOME/.cache/k8s-sidecar-rs-target/aarch64-unknown-linux-musl/release/k8s-sidecar-rs" /tmp/k8s-sidecar-rs-ctx/
-	docker build --provenance=false --sbom=false -t $(RUST_IMAGE) /tmp/k8s-sidecar-rs-ctx
+	docker build --provenance=false --sbom=false \
+	  --build-context build=/tmp/k8s-sidecar-rs-ctx \
+	  -t $(RUST_IMAGE) /tmp/k8s-sidecar-rs-ctx
 
 test-rust: rust-image
 	SIDECAR_IMAGE=$(RUST_IMAGE) DUMMY_IMAGE=$(DUMMY_IMAGE) \

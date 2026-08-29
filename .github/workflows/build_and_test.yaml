@@ -28,29 +28,21 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
             arch: amd64
           - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
             arch: arm64
     name: "Build ${{ matrix.arch }}"
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - name: Install musl toolchain
-        run: sudo apt-get update && sudo apt-get install -y musl-tools cmake
-      - name: Build static binary
-        run: cargo build --release --target ${{ matrix.target }}
+      # The Dockerfile is self-contained (multi-stage, compiles in-image on
+      # the native runner), so this exercises the exact build the release
+      # workflow publishes. provenance/sbom stay off: attestations turn the
+      # output into an OCI index that `docker save`/kind can't load.
       - name: Build image
         run: |
-          mkdir -p /tmp/ctx
-          cp Dockerfile /tmp/ctx/
-          cp target/${{ matrix.target }}/release/k8s-sidecar-rs /tmp/ctx/
           docker build --provenance=false --sbom=false \
-            -t k8s-sidecar-rs:testing /tmp/ctx
+            -t k8s-sidecar-rs:testing .
           docker save k8s-sidecar-rs:testing -o /tmp/k8s-sidecar-rs-${{ matrix.arch }}.tar
       - uses: actions/upload-artifact@v4
         with:
